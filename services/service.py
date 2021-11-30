@@ -35,10 +35,15 @@ class TransactionAuthorizerService:
     def process_transaction(self, transaction):
         try:
             account_id = transaction['id']
-            if not self.__create_transaction(transaction):
+            if self.__validate_limit_transaction(transaction):
                 return {"account": {"violations": ['high-frequency-small-interval']}}
+            if self.__validate_double_transaction(transaction):
+                return {"account": {"violations": ['doubled-transaction']}}
+            self.__create_transaction(transaction)
             account = self.db.get_account(account_id)
+
             if account:
+
                 if not account['active-card']:
                     account['violations'] = ['card-not-active']
                     return {"account": account}
@@ -53,21 +58,30 @@ class TransactionAuthorizerService:
             return {"account": {"violations": ['account-not-initialized']}}
 
     def __create_transaction(self, transaction):
-        date_time = datetime.strptime(transaction['time'], '%Y-%m-%dT%H:%M:%S.%fZ')
-        timestamp = datetime.timestamp(date_time)
+        timestamp = self.__get_timestamp(transaction)
+        transaction['time'] = int(timestamp)
+        self.db.create_transaction(transaction)
 
-        if self.__validate_limit_transaction(timestamp):
-            transaction['time'] = int(timestamp)
-            self.db.create_transaction(transaction)
-            return True
-        return False
-
-    def __validate_limit_transaction(self, timestamp):
+    def __validate_limit_transaction(self, transaction):
+        timestamp = self.__get_timestamp(transaction)
         transactions = self.db.get_transactions()
         counter = 0
         for key in transactions:
             if transactions[key]['time'] > timestamp - 120:
-                counter = counter+1
+                counter = counter + 1
         if counter >= 3:
-            return False
-        return True
+            return True
+        return False
+
+    def __validate_double_transaction(self, transaction):
+        timestamp = self.__get_timestamp(transaction)
+        transactions = self.db.get_transactions()
+        for key in transactions:
+            if transactions[key]['time'] > timestamp - 120 and transactions[key]['amount'] == transaction['amount'] and \
+                    transactions[key]['merchant'] == transaction['merchant']:
+                return True
+
+    @staticmethod
+    def __get_timestamp(transaction):
+        date_time = datetime.strptime(transaction['time'], '%Y-%m-%dT%H:%M:%S.%fZ')
+        return datetime.timestamp(date_time)
