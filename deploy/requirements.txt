@@ -1,0 +1,6 @@
+boto3
+botocore
+moto
+Flask
+Flask-RESTful
+waitress
